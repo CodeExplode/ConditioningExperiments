@@ -38,7 +38,7 @@ class Conditioner:
             finished = True
             
             for index, (segment, is_processed) in enumerate(text_segments):
-                is not is_processed:
+                if not is_processed:
                     del text_segments[index]
                     
                     for concept in sorted_concepts:
