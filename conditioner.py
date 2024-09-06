@@ -42,7 +42,7 @@ class Conditioner:
             if prompt.strip() == '':
                 encoding = list(unconditional_sd15.to(device=self.device, dtype=self.dtype).unbind(0)) # turn the unconditional tensor with shape (77, 768) into a list with 77 tensor elements with shape (768)
             else:
-                # prompt will be split into a series of (text, is_processed) segments, where each 'text' is either a known existing conditioning key, or a word which does not yet have a conditioning vector
+                '''# prompt will be split into a series of (text, is_processed) segments, where each 'text' is either a known existing conditioning key, or a word which does not yet have a conditioning vector
                 text_segments = [ (prompt, False) ]
                 
                 finished = False
@@ -86,8 +86,15 @@ class Conditioner:
                 
                 encoding = []
                 for segment, _ in text_segments:
-                   encoding.append(self.get_vector(segment))
-               
+                   encoding.append(self.get_vector(segment))'''
+                   
+                # the above method is way too slow, for now just split on commas since that's how concept strings are being determined
+                encoding = []
+                concepts = [concept.strip() for concept in prompt.split(',')]
+                for concept in concepts:
+                    vector = self.get_vector(concept)
+                    encoding.append(vector)
+            
             encodings.append(encoding)
             
             if len(encoding) > longest_encoding:
