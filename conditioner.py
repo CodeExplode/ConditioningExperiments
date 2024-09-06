@@ -3,7 +3,6 @@ import re
 import torch
 
 # TODO 
-# encode should maybe take 'prompts', and return a num_prompts * concept * 768 tensor (would need padding to ensure all are same length?)
 # should maybe save vectors as safetensors?
 # pre-created concepts could potentially have n vectors, so each concept could have n vectors, default to 1
 # would need some way of encoding positional information if used with SD3 or Flux, though cross-attention blocks of unets would seemingly not need it
