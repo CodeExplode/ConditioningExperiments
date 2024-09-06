@@ -9,6 +9,7 @@ from sd1_unconditional_hack import get_sd1_unconditional
 # would need some way of encoding positional information if used with SD3 or Flux, though cross-attention blocks of unets would seemingly not need it
 # might need to support training an unconditional vector for SD1, whereas other models presumably all use zero unconditional (could also just cache the existing one)
 # might want to pad out empty spaces with the unconditional tokens, and maybe add the BOS (which might in theory encode something like a pooled representation of the image when prompts are encoded)
+# creating concepts after requires_grad is set would cause them to not be trainable
 
 class Conditioner:
     def __init__(self, vector_dim=768, device='cpu', dtype=torch.float32):
@@ -33,6 +34,8 @@ class Conditioner:
             self.get_vector(concept)
     
     #def encode(self, prompts, pad_to_same_length=True):
+    # prompts should never contain more than 75 concepts due to reliance on CLIP BOS and EOS
+    # though perhaps length doesn't matter, and the encodings could just be expanded to match the longest, using repeats of the final unconditional where the unconditional will expand with repeats of the final tokens
     def encode(self, prompts):
         encodings = []
         longest_encoding = 0
@@ -90,7 +93,7 @@ class Conditioner:
                 encoding = []
                 for segment, _ in text_segments:
                    encoding.append(self.get_vector(segment))'''
-                   
+                
                 # the above method is way too slow, for now just split on commas since that's how concept strings are being determined
                 encoding = []
                 encoding.append(self.unconditional[0]) # BOS
@@ -101,6 +104,7 @@ class Conditioner:
                 
                 if len(encoding) < len(self.unconditional):
                     encoding.extend(self.unconditional[len(encoding):len(self.unconditional)])
+                #encoding.append(self.unconditional[-1]) # an EOS, seems useful to just have somewhere for some of the attention to go to mellow things?
                 
             encodings.append(encoding)
             
@@ -129,7 +133,7 @@ class Conditioner:
     def set_requires_grad(self, requires_grad=True, concepts=None):
         for concept, vector in self.conditioning_vectors.items():
             match = True if (concepts is None) else (concept in concepts)
-            vector.requires_grad = requires_grad if match else (not requires_grad)
+            vector.requires_grad_( requires_grad if match else (not requires_grad) )
 
     def get_parameters(self, only_requires_grad=False):
         if only_requires_grad:
