@@ -103,6 +103,6 @@ class Conditioner:
 
     def get_parameters(self, only_requires_grad=False):
         if only_requires_grad:
-            return [vector for _, vector in self.conditioning_vectors.values() if vector.requires_grad]
+            return [vector for vector in self.conditioning_vectors.values() if vector.requires_grad]
         else:
             return self.conditioning_vectors.values()
