@@ -10,12 +10,15 @@ import torch
 # might want to pad out empty spaces with the unconditional tokens, and maybe add the BOS (which might in theory encode something like a pooled representation of the image when prompts are encoded)
 
 class Conditioner:
-    def __init__(self, vector_dim=768):
+    def __init__(self, vector_dim=768, device='cpu', dtype=torch.float32):
         self.vector_dim = vector_dim
         self.conditioning_vectors: Dict[str, torch.Tensor] = {}
+        self.device = device
+        self.dtype = dtype
     
     def _create_vector(self, mean=0.0, std=1e-6):
-        return torch.randn(self.vector_dim) * std + mean
+        vec = torch.randn(self.vector_dim) * std + mean
+        return vec.to(device=self.device, dtype=self.dtype)
 
     def get_vector(self, concept):
         if concept not in self.conditioning_vectors:
@@ -37,7 +40,7 @@ class Conditioner:
         
         for prompt in prompts:
             if prompt.strip() == '':
-                encoding = list(unconditional_sd15.unbind(0)) # turn the unconditional tensor with shape (77, 768) into a list with 77 tensor elements with shape (768)
+                encoding = list(unconditional_sd15.to(device=self.device, dtype=self.dtype).unbind(0)) # turn the unconditional tensor with shape (77, 768) into a list with 77 tensor elements with shape (768)
             else:
                 # prompt will be split into a series of (text, is_processed) segments, where each 'text' is either a known existing conditioning key, or a word which does not yet have a conditioning vector
                 text_segments = [ (prompt, False) ]
@@ -98,7 +101,7 @@ class Conditioner:
         if pad_to_length:
             for encoding in encodings:
                 while len(encoding) < pad_to_length:
-                    encoding.append(torch.zeros(self.vector_dim))
+                    encoding.append(torch.zeros(self.vector_dim).to(device=self.device, dtype=self.dtype))
                 if len(encoding) > pad_to_length:
                     del encoding[pad_to_length:]
         
@@ -119,9 +122,15 @@ class Conditioner:
         else:
             return self.conditioning_vectors.values()
     
+    # probably not the right way to do this
     def to(self, device, dtype):
-        for _, vector in self.conditioning_vectors.items():
-            vector.to(device=device, dtype=dtype)
+        for concept, vector in self.conditioning_vectors.items():
+            new_vector = vector.detach().to(device=device, dtype=dtype).requires_grad_(vector.requires_grad)
+            self.conditioning_vectors[concept] = new_vector
+        
+        self.device = device
+        self.dtype = dtype
+
     
     # potentially add argument to only save those with requires_grad
     def save(self, directory, step_count=None):
@@ -138,7 +147,7 @@ class Conditioner:
             if file_name.endswith('.pt'):
                 concept = file_name[:-3]  # strip the '.pt' extension to get the concept name
                 file_path = os.path.join(directory, file_name)
-                vector = torch.load(file_path)
+                vector = torch.load(file_path).to(device=self.device, dtype=self.dtype)
                 self.conditioning_vectors[concept] = vector
 
 # a hack for the sake of testing, as comfy showed that SD1 does not perform well with 0 conditioning, and training a new unconditional vector seems pointless
