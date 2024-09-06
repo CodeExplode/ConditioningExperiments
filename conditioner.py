@@ -7,6 +7,7 @@ import torch
 # should maybe save vectors as safetensors?
 # pre-created concepts could potentially have n vectors, so each concept could have n vectors, default to 1
 # would need some way of encoding positional information if used with SD3 or Flux, though cross-attention blocks of unets would seemingly not need it
+# might need to support training an unconditional vector for SD1, whereas other models presumably all use zero unconditional
 
 class Conditioner:
     def __init__(self, vector_dim=768):
@@ -26,61 +27,79 @@ class Conditioner:
         for concept in concepts:
             self.get_vector(concept)
     
-    def encode(self, prompt):
+    def encode(self, prompts, pad_to_same_length=True):
+        encodings = []
+        longest_encoding = 0
+        
         # sort concepts by number of spaces to match longer combinations of words first
         sorted_concepts = sorted(self.conditioning_vectors.keys(), key=lambda k: len(k.split()), reverse=True)
         
-        # prompt will be split into a series of (text, is_processed) segments, where each 'text' is either a known existing conditioning key, or a word which does not yet have a conditioning vector
-        text_segments = [ (prompt, False) ]
-        
-        finished = False
-        while not finished:
-            finished = True
+        for prompt in prompts:
+            # prompt will be split into a series of (text, is_processed) segments, where each 'text' is either a known existing conditioning key, or a word which does not yet have a conditioning vector
+            text_segments = [ (prompt, False) ]
             
-            for index, (segment, is_processed) in enumerate(text_segments):
-                if not is_processed:
-                    del text_segments[index]
-                    
-                    for concept in sorted_concepts:
-                        key_pattern = r'\b' + re.escape(concept) + r'\b'
-                        match = re.search(key_pattern, segment)
+            finished = False
+            while not finished:
+                finished = True
+                
+                for index, (segment, is_processed) in enumerate(text_segments):
+                    if not is_processed:
+                        del text_segments[index]
                         
-                        if match:
-                            before = segment[:match.start()].strip()
-                            after = segment[match.end():].strip()
+                        for concept in sorted_concepts:
+                            key_pattern = r'\b' + re.escape(concept) + r'\b'
+                            match = re.search(key_pattern, segment)
                             
-                            if before:
-                                text_segments.insert(index, (before, False))
+                            if match:
+                                before = segment[:match.start()].strip()
+                                after = segment[match.end():].strip()
+                                
+                                if before:
+                                    text_segments.insert(index, (before, False))
+                                    index += 1
+                                
+                                text_segments.insert(index, (concept, True))
                                 index += 1
-                            
-                            text_segments.insert(index, (concept, True))
-                            index += 1
-                            
-                            if after:
-                                text_segments.insert(index, (after, False))
-                            
-                            finished = False
-                            break
-                    
-                    # if finished is still true, there were no existing concept matches in the segment, so split the segment into individual words, which will each get a new blank vector
-                    if finished:
-                        words = re.findall(r'\w+(?:[-_]\w+)*|\S', segment)
-                        for word in words:
-                            text_segments.insert(index, (word, True))
-                            index += 1
-                    
-                    finished = False
-                    break
+                                
+                                if after:
+                                    text_segments.insert(index, (after, False))
+                                
+                                finished = False
+                                break
+                        
+                        # if finished is still true, there were no existing concept matches in the segment, so split the segment into individual words, which will each get a new blank vector
+                        if finished:
+                            words = re.findall(r'\w+(?:[-_]\w+)*|\S', segment)
+                            for word in words:
+                                text_segments.insert(index, (word, True))
+                                index += 1
+                        
+                        finished = False
+                        break
+            
+            encoding = []
+            for segment, _ in text_segments:
+               encoding.append(self.get_vector(segment))
+               
+            encodings.append(encoding)
+            
+            if len(encoding) > longest_encoding:
+                longest_encoding = encodings
         
-        vectors = []
-        for segment, _ in text_segments:
-           vectors.append(self.get_vector(segment))
+        # unsure if this is needed for a batch to work correctly
+        if pad_to_same_length:
+            for encoding in encodings:
+                while len(encoding) < longest_encoding
+                    encoding.append(torch.zeros(self.vector_dim)))
         
-        return vectors
+        # convert list of lists to a tensor of shape (num_prompts, longest_encoding, vector_dim)
+        batch_tensor = torch.stack([torch.stack(encoding) for encoding in encodings])
+        
+        return batch_tensor
     
     def save(self, directory, step_count=None):
-        if step_count:
-            directory = os.path.join(directory, f"step_{step_count}")
+        #if step_count:
+        #    directory = os.path.join(directory, f"step_{step_count}")
         os.makedirs(directory, exist_ok=True)
 
         for concept, vector in self.conditioning_vectors.items():
@@ -95,7 +114,7 @@ class Conditioner:
                 vector = torch.load(file_path)
                 self.conditioning_vectors[concept] = vector
     
-    # concepts list is optional filter, and all other vectors will be set to opposite setting
+    # concepts is optional filter list, and all other vectors will be set to opposite setting
     def set_requires_grad(self, requires_grad=True, concepts=None):
         for concept, vector in self.conditioning_vectors.items():
             match = (concept in concepts) if (concepts is not None) else True
