@@ -43,7 +43,7 @@ class Conditioner:
             if prompt.strip() == '':
                 encoding = self.unconditional 
             else:               
-                # the above method is way too slow, for now just split on commas since that's how concept strings are being determined
+                # for now just split on commas since that's how concept strings are being determined
                 encoding = []
                 encoding.append(self.unconditional[0]) # BOS
                 concepts = [concept.strip() for concept in prompt.split(',')]
