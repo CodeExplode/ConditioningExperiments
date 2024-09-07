@@ -10,6 +10,7 @@ from sd1_unconditional_hack import get_sd1_unconditional
 # might need to support training an unconditional vector for SD1, whereas other models presumably all use zero unconditional (could also just cache the existing one)
 # might want to pad out empty spaces with the unconditional tokens, and maybe add the BOS (which might in theory encode something like a pooled representation of the image when prompts are encoded)
 # creating concepts after requires_grad is set would cause them to not be trainable
+# should probably aim to keep vector norms around the same as original conditioning, maybe use unconditional as basis, maybe ignoring bos
 
 class Conditioner:
     def __init__(self, vector_dim=768, device='cpu', dtype=torch.float32):
@@ -24,6 +25,9 @@ class Conditioner:
         return vec.to(device=self.device, dtype=self.dtype)
 
     def get_vector(self, concept):
+        if len(concept.strip()) == 0:
+            print(f'tried to create blank concept')
+    
         if concept not in self.conditioning_vectors:
             self.conditioning_vectors[concept] = self._create_vector()
         return self.conditioning_vectors[concept]
@@ -48,6 +52,9 @@ class Conditioner:
                 encoding.append(self.unconditional[0]) # BOS
                 concepts = [concept.strip() for concept in prompt.split(',')]
                 for concept in concepts:
+                    if len(concept.strip()) == 0:
+                        print(f'empty concept in: {prompt}')
+                        continue
                     vector = self.get_vector(concept)
                     encoding.append(vector)
                 
@@ -58,9 +65,11 @@ class Conditioner:
             encodings.append(encoding)
         
         # convert list of lists to a tensor of shape (num_prompts, len(self.unconditional), vector_dim)
-        batch_tensor = torch.stack([torch.stack(encoding) for encoding in encodings])
+        batch_encoding = torch.stack([torch.stack(encoding) for encoding in encodings])
         
-        return batch_tensor
+        # return encodings so can calculate loss on the magnitudes, or pass them back to enforce_conditioning_magnitudes here
+        # could also just cache in self, and call enforce_magnitudes_on_last_encodings
+        return batch_encoding, encodings
     
     # concepts is optional filter list, and all other vectors will be set to opposite setting
     def set_requires_grad(self, requires_grad=True, concepts=None):
@@ -84,6 +93,18 @@ class Conditioner:
         self.dtype = dtype
         self.unconditional = [ x.to(device, dtype) for x in self.unconditional ]
     
+    # a hacky way to force the conditioning vectors to have a similar magnitude to conditioning from CLIP, called during training, would ideally be done as part of the loss function to allow the optimizer to aim for it
+    # only applied if the magnitude is larger than target, to give near-zero init vectors a chance to grow in the right direction
+    # this value seems very large and is potentially incorrect, from the final hidden states of CLIP_L passed through the normalization layer, for 9000 test prompts, ignoring the first BOS vector which is always inserted manually here (should maybe have encoded with no special tokens to ignore padding too)
+    def enforce_conditioning_magnitudes(self, vectors=[], target_magnitude=27.685843130140224):
+        with torch.no_grad():
+            for vector in vectors:
+                current_magnitude = torch.norm(vector)
+                
+                if current_magnitude > target_magnitude:
+                    scaling_factor = target_magnitude / current_magnitude
+                    vector.mul_(scaling_factor) # scale in place
+    
     # potentially add argument to only save those with requires_grad
     def save(self, directory, step_count=None):
         #if step_count:
@@ -104,3 +125,4 @@ class Conditioner:
                 file_path = os.path.join(directory, file_name)
                 vector = torch.load(file_path).to(device=self.device, dtype=self.dtype)
                 self.conditioning_vectors[concept] = vector
+        self.enforce_conditioning_magnitudes(self.conditioning_vectors.values())
