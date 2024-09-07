@@ -38,62 +38,11 @@ class Conditioner:
     # though perhaps length doesn't matter, and the encodings could just be expanded to match the longest, using repeats of the final unconditional where the unconditional will expand with repeats of the final tokens
     def encode(self, prompts):
         encodings = []
-        longest_encoding = 0
-        
-        # sort concepts by number of spaces to match longer combinations of words first
-        sorted_concepts = sorted(self.conditioning_vectors.keys(), key=lambda k: len(k.split()), reverse=True)
         
         for prompt in prompts:
             if prompt.strip() == '':
-                #encoding = list(unconditional.to(device=self.device, dtype=self.dtype).unbind(0)) # turn the unconditional tensor with shape (77, 768) into a list with 77 tensor elements with shape (768)
                 encoding = self.unconditional 
-            else:
-                '''# prompt will be split into a series of (text, is_processed) segments, where each 'text' is either a known existing conditioning key, or a word which does not yet have a conditioning vector
-                text_segments = [ (prompt, False) ]
-                
-                finished = False
-                while not finished:
-                    finished = True
-                    
-                    for index, (segment, is_processed) in enumerate(text_segments):
-                        if not is_processed:
-                            del text_segments[index]
-                            
-                            for concept in sorted_concepts:
-                                concept_pattern = r'\b' + re.escape(concept) + r'\b'
-                                match = re.search(concept_pattern, segment)
-                                
-                                if match:
-                                    before = segment[:match.start()].strip()
-                                    after = segment[match.end():].strip()
-                                    
-                                    if before:
-                                        text_segments.insert(index, (before, False))
-                                        index += 1
-                                    
-                                    text_segments.insert(index, (concept, True))
-                                    index += 1
-                                    
-                                    if after:
-                                        text_segments.insert(index, (after, False))
-                                    
-                                    finished = False
-                                    break
-                            
-                            # if finished is still true, there were no existing concept matches in the segment, so split the segment into individual words, which will each get a new blank vector
-                            if finished:
-                                words = re.findall(r'\w+(?:[-_]\w+)*|\S', segment)
-                                for word in words:
-                                    text_segments.insert(index, (word, True))
-                                    index += 1
-                            
-                            finished = False
-                            break
-                
-                encoding = []
-                for segment, _ in text_segments:
-                   encoding.append(self.get_vector(segment))'''
-                
+            else:               
                 # the above method is way too slow, for now just split on commas since that's how concept strings are being determined
                 encoding = []
                 encoding.append(self.unconditional[0]) # BOS
@@ -107,24 +56,8 @@ class Conditioner:
                 #encoding.append(self.unconditional[-1]) # an EOS, seems useful to just have somewhere for some of the attention to go to mellow things?
                 
             encodings.append(encoding)
-            
-            #if len(encoding) > longest_encoding:
-            #    longest_encoding = len(encoding)
         
-        # unsure if this is needed for a batch to work correctly
-        '''if pad_to_same_length:
-            for encoding in encodings:
-                while len(encoding) < longest_encoding:
-                    encoding.append(torch.zeros(self.vector_dim))'''
-        '''if pad_to_length:
-            for encoding in encodings:
-                while len(encoding) < pad_to_length:
-                    #encoding.append(torch.zeros(self.vector_dim).to(device=self.device, dtype=self.dtype))
-                    encoding.append(self.unconditional[len(encoding)])
-                if len(encoding) > pad_to_length:
-                    del encoding[pad_to_length:]'''
-        
-        # convert list of lists to a tensor of shape (num_prompts, longest_encoding, vector_dim)
+        # convert list of lists to a tensor of shape (num_prompts, len(self.unconditional), vector_dim)
         batch_tensor = torch.stack([torch.stack(encoding) for encoding in encodings])
         
         return batch_tensor
@@ -161,10 +94,13 @@ class Conditioner:
             file_name = os.path.join(directory, f"{concept}.pt")
             torch.save(vector, file_name)
 
-    def load(self, directory):
+    def load(self, directory, only_load_existing_concepts=False):
         for file_name in os.listdir(directory):
             if file_name.endswith('.pt'):
                 concept = file_name[:-3]  # strip the '.pt' extension to get the concept name
+                if only_load_existing_concepts and not concept in self.conditioning_vectors:
+                    print(f'discarding {concept} concept data')
+                    continue # a quick hack to identify concepts removed due to typos, their concept files will not be updated on the next save if never loaded
                 file_path = os.path.join(directory, file_name)
                 vector = torch.load(file_path).to(device=self.device, dtype=self.dtype)
                 self.conditioning_vectors[concept] = vector
