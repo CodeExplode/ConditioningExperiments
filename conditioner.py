@@ -28,7 +28,7 @@ class Conditioner:
             self.conditioning_vectors[concept] = self._create_vector()
         return self.conditioning_vectors[concept]
     
-    # pre-create vectors which match multiple words in a prompt, such as 'John Smith', 'Space Command Uniform', etc (might add option for number of vectors with each concept, default to 1)
+    # pre-create vectors for phrases, such as 'John Smith', 'Space Command Uniform', etc (might add option for number of vectors with each concept, default to 1)
     def create_concepts(self, concepts):
         for concept in concepts:
             self.get_vector(concept)
