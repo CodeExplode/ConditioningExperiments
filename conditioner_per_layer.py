@@ -14,6 +14,10 @@ from sd1_unconditional_hack import get_sd1_unconditional
 # creating concepts after requires_grad is set would cause them to not be trainable, though that's fine since the optimizer wouldn't include them either, so need to pre-create
 # should probably aim to keep vector norms around the same as original conditioning, maybe use unconditional as basis, maybe ignoring bos
 
+# could maybe have small networks which encode various types of concepts from original vectors
+# e.g. a 'person' encoder, which all names pass through, ensuring that the type of input vector is always the same defining a person, and hasn't fit the wrong aspects of the image, particularly for names seen less often, and most of the learning about how to compose such conditioning is in the network, so it's easy to add a new name
+# style encoder, outfit encoder, object encoder, quality encoder
+
 class ConditionerPerLayer:
     def __init__(self, vector_dim=768, num_layers=7, device='cpu', dtype=torch.float32):
         self.vector_dim = vector_dim
